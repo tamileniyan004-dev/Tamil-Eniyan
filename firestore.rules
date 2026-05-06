@@ -1,0 +1,67 @@
+// firestore.rules
+// Deploy with: firebase deploy --only firestore:rules
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helper functions ──────────────────────────────────────
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+    function isProjectMember(projectId) {
+      return isSignedIn() &&
+        request.auth.uid in get(/databases/$(database)/documents/projects/$(projectId)).data.members;
+    }
+    function isAdmin() {
+      return isSignedIn() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "admin";
+    }
+
+    // ── Users ─────────────────────────────────────────────────
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isOwner(userId);
+      allow update: if isOwner(userId) || isAdmin();
+    }
+
+    // ── Projects ──────────────────────────────────────────────
+    match /projects/{projectId} {
+      allow read: if isProjectMember(projectId);
+      allow create: if isSignedIn();
+      allow update: if isProjectMember(projectId);
+      allow delete: if isAdmin();
+
+      // Villas
+      match /villas/{villaId} {
+        allow read, write: if isProjectMember(projectId);
+      }
+
+      // Categories
+      match /categories/{categoryId} {
+        allow read, write: if isProjectMember(projectId);
+
+        // Drawings (nested under category)
+        match /drawings/{drawingId} {
+          allow read, write: if isProjectMember(projectId);
+        }
+      }
+
+      // Revisions
+      match /revisions/{revId} {
+        allow read: if isProjectMember(projectId);
+        allow write: if isProjectMember(projectId);
+      }
+    }
+
+    // ── Activity log ──────────────────────────────────────────
+    match /activityLog/{logId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update, delete: if false; // immutable
+    }
+  }
+}
